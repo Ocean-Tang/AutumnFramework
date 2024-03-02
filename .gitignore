@@ -3,3 +3,4 @@
 
 # 项目排除路径
 /c01-01-resource-resolver/target/
+**/target/
