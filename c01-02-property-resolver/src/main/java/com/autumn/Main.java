@@ -19,7 +19,7 @@ public class Main {
         PropertiesResolver propertiesResolver = new PropertiesResolver(properties);
 
         String url = propertiesResolver.getProperty("summer.datasource.url");
-        String title = propertiesResolver.getProperty("${app.title:${HOME}}");
+        String title = propertiesResolver.getProperty("${app.path:${HOMEPATH}}");
         LocalTime localTime = propertiesResolver.getProperty("convert.localtime", LocalTime.class);
         System.out.println(url);
         System.out.println(title);
