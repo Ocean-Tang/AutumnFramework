@@ -31,7 +31,14 @@ public class ResourceResolver {
     String basePackage;
 
     public static void main(String[] args) {
-        new ResourceResolver("lombok").scan(r -> (Object)r );
+        List<String> classList = new ResourceResolver("lombok").scan(r -> {
+            String name = r.getName();
+            if (name.endsWith(".class")) {
+                return name.substring(0, name.length() - 6).replace("/", ".").replace("\\", ".");
+            }
+            return null;
+        });
+        System.out.println(classList);
     }
 
     public ResourceResolver(String basePackage) {
