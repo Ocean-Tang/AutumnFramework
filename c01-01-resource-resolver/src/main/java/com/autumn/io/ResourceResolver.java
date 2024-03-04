@@ -32,10 +32,13 @@ public class ResourceResolver {
 
     public static void main(String[] args) {
         List<String> classList = new ResourceResolver("lombok").scan(r -> {
+            // 扫描后得到的名称为 org/xxx/xxx/Hello.class
             String name = r.getName();
             if (name.endsWith(".class")) {
+                // 将文件名替换为 org.xxx.xxx.Hello
                 return name.substring(0, name.length() - 6).replace("/", ".").replace("\\", ".");
             }
+            // 不是有效的 class 文件
             return null;
         });
         System.out.println(classList);
