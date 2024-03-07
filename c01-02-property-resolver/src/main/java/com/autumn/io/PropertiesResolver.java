@@ -84,14 +84,18 @@ public class PropertiesResolver {
 
     @Nullable
     public String getProperty (String key) {
+        // key 有可能为 ${abc.xyz:${def:DefaultValue}}
+        // 解析 key，并转换为 PropertyExpr 对象
         PropertyExpr keyExpr = parsePropertyExpr(key);
         if (keyExpr != null) {
             if (keyExpr.getDefaultValue() != null) {
+                // 如果有默认值，继续解析，可能得到嵌套的下一层
                 return getProperty(keyExpr.getKey(), keyExpr.getDefaultValue());
             } else {
                 return getRequiredProperty(keyExpr.getKey());
             }
         }
+        // 如果不是表达式 key，则直接从保存的键值对中获取 value 并解析
         String value = this.properties.get(key);
         if (value != null) {
             return parseValue(value);
@@ -131,6 +135,7 @@ public class PropertiesResolver {
     }
 
     String parseValue(String value) {
+        // value 有可能是一个 表达式 key
         PropertyExpr expr = parsePropertyExpr(value);
         if (expr == null) {
             return value;
