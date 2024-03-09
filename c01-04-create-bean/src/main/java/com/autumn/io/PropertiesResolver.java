@@ -147,8 +147,13 @@ public class PropertiesResolver {
         }
     }
 
-    String getRequiredProperty(String key) {
+    public String getRequiredProperty(String key) {
         String value = getProperty(key);
+        return Objects.requireNonNull(value, "Property '" + key + "' not found.");
+    }
+
+    public <T> T getRequiredProperty(String key, Class<T> targetType) {
+        T value = getProperty(key, targetType);
         return Objects.requireNonNull(value, "Property '" + key + "' not found.");
     }
 

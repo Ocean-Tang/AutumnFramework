@@ -1,5 +1,6 @@
 package com.autumn.context;
 
+import com.autumn.annotation.Autowired;
 import com.autumn.annotation.Bean;
 import com.autumn.annotation.Component;
 import com.autumn.annotation.ComponentScan;
@@ -7,25 +8,40 @@ import com.autumn.annotation.Configuration;
 import com.autumn.annotation.Import;
 import com.autumn.annotation.Order;
 import com.autumn.annotation.Primary;
+import com.autumn.annotation.Value;
+import com.autumn.exception.BeanCreationException;
 import com.autumn.exception.BeanDefinitionException;
 import com.autumn.exception.BeanNotOfRequiredTypeException;
+import com.autumn.exception.NoSuchBeanDefinitionException;
 import com.autumn.exception.NoUniqueBeanDefinitionException;
+import com.autumn.exception.UnsatisfiedDependencyException;
 import com.autumn.io.PropertiesResolver;
 import com.autumn.io.ResourceResolver;
 import com.autumn.utils.ClassUtils;
+import com.sun.istack.internal.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import javax.annotation.PostConstruct;
 import javax.annotation.PreDestroy;
+import java.lang.annotation.Annotation;
+import java.lang.reflect.AccessibleObject;
 import java.lang.reflect.Constructor;
+import java.lang.reflect.Executable;
+import java.lang.reflect.Field;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Member;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
+import java.lang.reflect.Parameter;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -49,7 +65,7 @@ public class AnnotationConfigApplicationContext {
         final Set<String> beanClassNames = scanForClassNames(configClass);
 
         // 创建 Bean 的定义
-        this.beans = createBeanDefinition(beanClassNames);
+        this.beans = createBeanDefinitions(beanClassNames);
 
         // 创建 Bean  循环依赖检测器
         this.creatingBeanNames = new HashSet<>();
@@ -63,6 +79,196 @@ public class AnnotationConfigApplicationContext {
                     return def.getName();
                 })
                 .collect(Collectors.toList());
+
+        // 创建其他普通 Bean
+        createNormalBeans();
+
+        if (log.isDebugEnabled()) {
+            this.beans.values().stream().sorted().forEach(def -> {
+                log.debug("bean initialized: {}", def);
+            });
+        }
+    }
+
+    void createNormalBeans() {
+        // 过滤出还没有创建实例的 Bean
+        List<BeanDefinition> defs = this.beans.values().stream()
+                .filter(def -> def.getInstance() == null).sorted().collect(Collectors.toList());
+
+        defs.forEach(def -> {
+            // 可能在其他 Bean 构造方法注入时已经被创建，因此再判断一次
+            if (def.getInstance() == null) {
+                createBeanAsEarlySingleton(def);
+            }
+        });
+    }
+
+    /**
+     * 创建一个 Bean，不进行字段和方法级别的注入。
+     * 如果创建的 Bean 不是 Configuration，则在构造方法中注入的依赖 Bean 会自动创建
+     *
+     * @param def BeanDefinition
+     */
+    private Object createBeanAsEarlySingleton(BeanDefinition def) {
+        log.debug("Try create bean '{}' as early singleton: {}", def.getName(), def.getBeanClass().getName());
+
+        // 发现循环依赖
+        if (!this.creatingBeanNames.add(def.getName())) {
+            throw new UnsatisfiedDependencyException(String.format("Circular dependency detected when create bean '%s'", def.getName()));
+        }
+
+        // 创建方式：构造方法或者工厂方法
+        Executable createFunction = null;
+        if (def.getFactoryMethod() != null) {
+            createFunction = def.getFactoryMethod();
+        } else {
+            createFunction = def.getConstructor();
+        }
+
+        // 获取方法的参数和参数上的注解
+        final Parameter[] parameters = createFunction.getParameters();
+        final Annotation[][] paramsAnnos = createFunction.getParameterAnnotations();
+        // 传递的参数值
+        Object[] args = new Object[parameters.length];
+
+        // 创建参数上所需要的 Bean
+        for (int i = 0; i < parameters.length; i++) {
+            final Parameter parameter = parameters[i];
+            final Annotation[] annotations = paramsAnnos[i];
+            final Value value = ClassUtils.getAnnotation(annotations, Value.class);
+            final Autowired autowired = ClassUtils.getAnnotation(annotations, Autowired.class);
+
+            // 如果是 @Configuration 标注的 Bean，则为工厂，不允许使用 @AutoWired 创建。
+            final boolean isConfiguration = isConfigurationDefinition(def);
+            if (isConfiguration && autowired != null) {
+                throw new BeanCreationException(String.format("Cannot specify @Autowired when create @Configuration bean '%s': '%s'.", def.getName(), def.getBeanClass().getName()));
+            }
+
+            // 参数需要 @Value 或者 @Autowired 两者之一
+            if (value != null && autowired != null) {
+                throw new BeanCreationException(String.format("Cannot specify both @Autowired and @Value when create bean '%s': '%s'.", def.getName(), def.getBeanClass().getName()));
+            }
+            if (value == null && autowired == null) {
+                throw new BeanCreationException(String.format("Must specify @Autowired or @Value when create bean '%s': '%s'.", def.getName(), def.getBeanClass().getName()));
+            }
+
+            final Class<?> type = parameter.getType();
+            if (value != null) {
+                args[i] = this.propertiesResolver.getRequiredProperty(value.value(), type);
+            } else {
+                String name = autowired.name();
+                boolean required = autowired.value();
+
+                BeanDefinition beanDefinition = name.isEmpty() ? findBeanDefinition(type) : findBeanDefinition(name, type);
+                // 检查这个参数是必须的
+                if (required && beanDefinition == null) {
+                    throw new BeanCreationException(String.format("Missing autowired bean with type '%s' when create bean '%s': '%s'.", type.getName(), def.getName(), def.getBeanClass().getName()));
+                }
+
+                if (beanDefinition != null) {
+                    Object autowiredBeanInstance = beanDefinition.getInstance();
+                    if (autowiredBeanInstance == null && !isConfiguration) {
+                        autowiredBeanInstance = createBeanAsEarlySingleton(beanDefinition);
+                    }
+                    args[i] = autowiredBeanInstance;
+                } else {
+                    args[i] = null;
+                }
+            }
+        }
+
+        Object instance = null;
+        if (def.getConstructor() != null) {
+            try {
+                instance = def.getConstructor().newInstance(args);
+            } catch (InstantiationException | IllegalAccessException | InvocationTargetException e) {
+                throw new BeanCreationException(String.format("Exception when create bean '%s': '%s'.", def.getName(), def.getBeanClass().getName()), e);
+            }
+        } else {
+            Object configInstance = getBean(def.getFactoryName());
+            try {
+                instance = def.getFactoryMethod().invoke(configInstance, args);
+            } catch (IllegalAccessException | InvocationTargetException e) {
+                throw new BeanCreationException(String.format("Exception when create bean '%s': '%s'.", def.getName(), def.getBeanClass().getName()), e);
+            }
+        }
+        def.setInstance(instance);
+        return instance;
+    }
+
+    @SuppressWarnings("unchecked")
+    public <T> T getBean(String name) {
+        BeanDefinition beanDefinition = this.beans.get(name);
+        if (beanDefinition == null) {
+            throw new NoSuchBeanDefinitionException(String.format("No bean defined with name '%s'.", name));
+        }
+        return (T) beanDefinition.getRequiredInstance();
+    }
+
+    public <T> T getBean(String name, Class<T> requiredType) {
+        T t = findBean(name, requiredType);
+        if (t == null) {
+            throw new NoSuchBeanDefinitionException(String.format("No bean defined with name '%s' and type '%s'.", name, requiredType));
+        }
+        return t;
+    }
+
+    @SuppressWarnings("unchecked")
+    public <T> List<T> getBeans(Class<T> requiredType) {
+        List<BeanDefinition> beanDefinitions = findBeanDefinitions(requiredType);
+        if (beanDefinitions.isEmpty()) {
+            return Collections.emptyList();
+        }
+        List<T> list = new ArrayList<>(beanDefinitions.size());
+        for (BeanDefinition beanDefinition : beanDefinitions) {
+            list.add((T) beanDefinition.getRequiredInstance());
+        }
+        return list;
+    }
+
+    @SuppressWarnings("unchecked")
+    public <T> T getBean(Class<T> requiredType) {
+        BeanDefinition beanDefinition = findBeanDefinition(requiredType);
+        if (beanDefinition == null) {
+            throw new NoSuchBeanDefinitionException(String.format("No bean defined with type '%s'.", requiredType));
+        }
+        return (T) beanDefinition.getRequiredInstance();
+    }
+
+    /**
+     * 检测是否存在指定Name的Bean
+     */
+    public boolean containsBean(String name) {
+        return this.beans.containsKey(name);
+    }
+
+    /**
+     * findXxx与getXxx类似，但不存在时返回null
+     */
+    @Nullable
+    @SuppressWarnings("unchecked")
+    protected <T> T findBean(String name, Class<T> requiredType) {
+        BeanDefinition def = findBeanDefinition(name, requiredType);
+        if (def == null) {
+            return null;
+        }
+        return (T) def.getRequiredInstance();
+    }
+
+    @Nullable
+    @SuppressWarnings("unchecked")
+    protected <T> T findBean(Class<T> requiredType) {
+        BeanDefinition def = findBeanDefinition(requiredType);
+        if (def == null) {
+            return null;
+        }
+        return (T) def.getRequiredInstance();
+    }
+
+    @Nullable
+    @SuppressWarnings("unchecked")
+    protected <T> List<T> findBeans(Class<T> requiredType) {
+        return findBeanDefinitions(requiredType).stream().map(def -> (T) def.getRequiredInstance()).collect(Collectors.toList());
     }
 
     private Set<String> scanForClassNames(Class<?> configClass) {
@@ -109,7 +315,7 @@ public class AnnotationConfigApplicationContext {
         return classNameSet;
     }
 
-    Map<String, BeanDefinition> createBeanDefinition(Set<String> beanClassNames) {
+    Map<String, BeanDefinition> createBeanDefinitions(Set<String> beanClassNames) {
         Map<String, BeanDefinition> defs = new HashMap<>();
 
         for (String className : beanClassNames) {
@@ -253,6 +459,108 @@ public class AnnotationConfigApplicationContext {
                 .sorted().collect(Collectors.toList());
     }
 
+    // 本章用不到
+    void injectProperties(BeanDefinition def, Class<?> clazz, Object bean) throws ReflectiveOperationException {
+        // 在当前类查找 Field 和 Method 并注入
+        for (Field field : clazz.getDeclaredFields()) {
+            tryInjectProperties(def, clazz, bean, field);
+        }
+        for (Method method : clazz.getDeclaredMethods()) {
+            tryInjectProperties(def, clazz, bean, method);
+        }
+        // 在父类类查找 Field 和 Method 并注入
+        Class<?> superclass = clazz.getSuperclass();
+        if (superclass != null) {
+            injectProperties(def, superclass, bean);
+        }
+    }
+
+    // 本章用不到
+    void tryInjectProperties(BeanDefinition def, Class<?> clazz, Object bean, AccessibleObject acc) throws ReflectiveOperationException {
+        Value value = acc.getAnnotation(Value.class);
+        Autowired autowired = acc.getAnnotation(Autowired.class);
+        if (value == null && autowired == null) {
+            return;
+        }
+
+        Field field = null;
+        Method method = null;
+        if (acc instanceof Field) {
+            Field f = (Field) acc;
+            checkFieldOrMethod(f);
+            f.setAccessible(true);
+            field = f;
+        }
+        if (acc instanceof Method) {
+            Method m = (Method) acc;
+            checkFieldOrMethod(m);
+            if (m.getParameters().length != 1) {
+                throw new BeanDefinitionException(
+                        String.format("Cannot inject a non-setter method %s for bean '%s': %s", m.getName(), def.getName(), def.getBeanClass().getName()));
+            }
+            m.setAccessible(true);
+            method = m;
+        }
+
+        String accessibleName = field != null ? field.getName() : method.getName();
+        Class<?> accessibleType = field != null ? field.getType() : method.getParameterTypes()[0];
+
+        if (value != null && autowired != null) {
+            throw new BeanCreationException(String.format("Cannot specify both @Autowired and @Value when inject %s.%s for bean '%s': %s",
+                    clazz.getSimpleName(), accessibleName, def.getName(), def.getBeanClass().getName()));
+        }
+
+        // value 注入
+        if (value != null) {
+            Object propValue = this.propertiesResolver.getRequiredProperty(value.value(), accessibleType);
+            if (field != null) {
+                log.debug("Field injection: {}.{} = {}", def.getBeanClass().getName(), accessibleName, propValue);
+                field.set(bean, propValue);
+            }
+            if (method != null) {
+                log.debug("Method injection: {}.{} ({})", def.getBeanClass().getName(), accessibleName, propValue);
+                method.invoke(bean, propValue);
+            }
+        }
+
+        // Autowired 注入
+        if (autowired != null) {
+            String name = autowired.name();
+            boolean required = autowired.value();
+            Object depends = name.isEmpty() ? findBean(accessibleType) : findBean(name, accessibleType);
+            if (required && depends == null) {
+                throw new UnsatisfiedDependencyException(String.format("Dependency bean not found when inject %s.%s for bean '%s': %s", clazz.getSimpleName(),
+                        accessibleName, def.getName(), def.getBeanClass().getName()));
+            }
+            if (depends != null) {
+                if (field != null) {
+                    log.debug("Field injection: {}.{} = {}", def.getBeanClass().getName(), accessibleName, depends);
+                    field.set(bean, depends);
+                }
+                if (method != null) {
+                    log.debug("Mield injection: {}.{} ({})", def.getBeanClass().getName(), accessibleName, depends);
+                    method.invoke(bean, depends);
+                }
+            }
+        }
+    }
+
+    // 本章用不到
+    void checkFieldOrMethod(Member m) {
+        int mod = m.getModifiers();
+        if (Modifier.isStatic(mod)) {
+            throw new BeanDefinitionException("Cannot inject static field: " + m);
+        }
+        if (Modifier.isFinal(mod)) {
+            if (m instanceof Field) {
+                throw new BeanDefinitionException("Cannot inject final field: " + m);
+            }
+            if (m instanceof Method) {
+                log.warn("Inject final method should be careful because it is not called on target bean when bean is proxied and may cause NullPointerException.");
+            }
+        }
+    }
+
     public BeanDefinition findBeanDefinition(Class<?> type) {
         List<BeanDefinition> beanDefinitions = findBeanDefinitions(type);
         if (beanDefinitions.isEmpty()) {
@@ -266,7 +574,7 @@ public class AnnotationConfigApplicationContext {
         if (primaryDefs.size() == 1) {
             return primaryDefs.get(0);
         }
-        if (primaryDefs.isEmpty()){
+        if (primaryDefs.isEmpty()) {
             throw new NoUniqueBeanDefinitionException(String.format("Multiple bean with type '%s' found, but no @Primary specified.", type.getName()));
         } else {
             throw new NoUniqueBeanDefinitionException(String.format("Multiple bean with type '%s' found, and multiple @Primary specified.", type.getName()));
