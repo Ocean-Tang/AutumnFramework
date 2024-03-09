@@ -43,6 +43,19 @@ public class BeanDefinition implements Comparable<BeanDefinition> {
         setInitAndDestroyMethod(initMethodName, destroyMethodName, initMethod, destroyMethod);
     }
 
+    public BeanDefinition(String name, Class<?> beanClass, String factoryName, Method factoryMethod, int order, boolean primary, String initMethodName,
+                          String destroyMethodName, Method initMethod, Method destroyMethod) {
+        this.name = name;
+        this.beanClass = beanClass;
+        this.constructor = null;
+        this.factoryName = factoryName;
+        this.factoryMethod = factoryMethod;
+        this.order = order;
+        this.primary = primary;
+        factoryMethod.setAccessible(true);
+        setInitAndDestroyMethod(initMethodName, destroyMethodName, initMethod, destroyMethod);
+    }
+
 
     private void setInitAndDestroyMethod(String initMethodName, String destroyMethodName, Method initMethod, Method destroyMethod) {
         this.initMethod = initMethod;

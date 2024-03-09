@@ -42,7 +42,7 @@ public class AnnotationConfigApplicationContext {
     public AnnotationConfigApplicationContext(Class<?> configClass, PropertiesResolver propertiesResolver) {
         this.propertiesResolver = propertiesResolver;
 
-        // 扫描获取所有 Bean 的 CLASS 类型
+        // 扫描获取所有 Bean 的 CLASS 类型, configClass 标注应该标注了 @ComponentScan
         final Set<String> beanClassNames = scanForClassNames(configClass);
 
         // 创建 Bean 的定义
@@ -50,12 +50,13 @@ public class AnnotationConfigApplicationContext {
     }
 
     private Set<String> scanForClassNames(Class<?> configClass) {
-        // 扫描配置了 @ComponentScan 中的包名
+        // 扫描配置了 @ComponentScan 中的包名，递归查找当前类的注解中，是否有 @ComponentScan
         ComponentScan componentScan = ClassUtils.findAnnotation(configClass, ComponentScan.class);
         // 获取包名，如果没有配置，获取配置类所在包
         final String[] scanPackages = componentScan == null || componentScan.value().length == 0 ? new String[]{configClass.getPackage().getName()} : componentScan.value();
         log.info("component scan in packages: {}", Arrays.toString(scanPackages));
 
+        // 使用 ResourceResolver 收集指定包下的 Class 资源，得到他们的类名
         Set<String> classNameSet = new HashSet<>();
         for (String pkg : scanPackages) {
             log.debug("scan package: {}", pkg);
@@ -75,7 +76,7 @@ public class AnnotationConfigApplicationContext {
             classNameSet.addAll(classList);
         }
 
-        // 查找 @Import
+        // 查找 @Import 中引入的类
         Import importConfig = ClassUtils.findAnnotation(configClass, Import.class);
         if (importConfig != null) {
             for (Class<?> importConfigClass : importConfig.value()) {
@@ -94,6 +95,7 @@ public class AnnotationConfigApplicationContext {
 
     Map<String, BeanDefinition> createBeanDefinition(Set<String> beanClassNames) {
         Map<String, BeanDefinition> defs = new HashMap<>();
+
         for (String className : beanClassNames) {
             Class<?> clazz = null;
             try {
@@ -101,13 +103,17 @@ public class AnnotationConfigApplicationContext {
             } catch (ClassNotFoundException e) {
                 throw new RuntimeException(e);
             }
+            // 如果为注解、枚举、接口、或者新版本的 record，则不创建 BeanDefinition
             if (clazz.isAnnotation() || clazz.isEnum() || clazz.isInterface()) {
                 continue;
             }
-            // 当前类是否标注了 @Component
+            /* 处理 @Component */
+            // 当前类是否标注了 @Component，标注了则开始创建 BeanDefinition
             Component component = ClassUtils.findAnnotation(clazz, Component.class);
             if (component != null) {
                 log.debug("found component: {}", clazz.getName());
+
+                // 如果是抽象类、私有类，则报错
                 int mod = clazz.getModifiers();
                 if (Modifier.isAbstract(mod)) {
                     throw new BeanDefinitionException(String.format("@Component class %s must not be abstract", clazz.getName()));
@@ -115,6 +121,8 @@ public class AnnotationConfigApplicationContext {
                 if (Modifier.isPrivate(mod)) {
                     throw new BeanDefinitionException(String.format("@Component class %s must not be private", clazz.getName()));
                 }
+
+                // 获取 bean 的名称，递归获取其中的 @Component，拿到其定义的 bean 名称，如果没有定义，则将类名转化为 bean 名称
                 String beanName = ClassUtils.getBeanName(clazz);
                 BeanDefinition def = new BeanDefinition(beanName, clazz, getSuitableConstructor(clazz), getOrder(clazz), clazz.isAnnotationPresent(Primary.class),
                         null, null,
@@ -122,6 +130,7 @@ public class AnnotationConfigApplicationContext {
                         ClassUtils.findAnnotationMethod(clazz, PreDestroy.class));
                 addBeanDefinitions(defs, def);
                 log.debug("defind bean: {}", def);
+                /* 处理 @Component */
 
                 // 如果是配置类，获取其中被 @Bean 标注的方法创建的 实例
                 Configuration configuration = ClassUtils.findAnnotation(clazz, Configuration.class);
@@ -137,6 +146,7 @@ public class AnnotationConfigApplicationContext {
         for (Method method : clazz.getDeclaredMethods()) {
             Bean bean = method.getAnnotation(Bean.class);
             if (bean != null) {
+                // 如果是抽象类、final类、私有类，则报错
                 int mod = method.getModifiers();
                 if (Modifier.isAbstract(mod)) {
                     throw new BeanDefinitionException(String.format("@Bean method %s#%s must not be abstract", clazz.getName(), method.getName()));
@@ -147,24 +157,26 @@ public class AnnotationConfigApplicationContext {
                 if (Modifier.isPrivate(mod)) {
                     throw new BeanDefinitionException(String.format("@Bean method %s#%s must not be private", clazz.getName(), method.getName()));
                 }
-            }
 
-            Class<?> beanClass = method.getReturnType();
-            if (beanClass.isPrimitive()) {
-                throw new BeanDefinitionException(String.format("@Bean method %s#%s must not return primitive type.", clazz.getName(), method.getName()));
-            }
-            if (beanClass == void.class || beanClass == Void.class) {
-                throw new BeanDefinitionException(String.format("@Bean method %s#%s must not return void.", clazz.getName(), method.getName()));
-            }
+                // 如果方法返回类型是基本类型或者是 void，则报错
+                Class<?> beanClass = method.getReturnType();
+                if (beanClass.isPrimitive()) {
+                    throw new BeanDefinitionException(String.format("@Bean method %s#%s must not return primitive type.", clazz.getName(), method.getName()));
+                }
+                if (beanClass == void.class || beanClass == Void.class) {
+                    throw new BeanDefinitionException(String.format("@Bean method %s#%s must not return void.", clazz.getName(), method.getName()));
+                }
 
-            BeanDefinition beanDefinition = new BeanDefinition(ClassUtils.getBeanName(method), beanClass, getSuitableConstructor(beanClass),
-                    getOrder(method), method.isAnnotationPresent(Primary.class),
-                    bean.initMethod().isEmpty() ? null : bean.initMethod(),
-                    bean.destroyMethod().isEmpty() ? null : bean.destroyMethod(),
-                    null,
-                    null);
-            addBeanDefinitions(defs, beanDefinition);
-            log.debug("define bean: {}", beanDefinition);
+                BeanDefinition beanDefinition = new BeanDefinition(ClassUtils.getBeanName(method), beanClass, factoryBeanName,
+                        method,
+                        getOrder(method), method.isAnnotationPresent(Primary.class),
+                        bean.initMethod().isEmpty() ? null : bean.initMethod(),
+                        bean.destroyMethod().isEmpty() ? null : bean.destroyMethod(),
+                        null,
+                        null);
+                addBeanDefinitions(defs, beanDefinition);
+                log.debug("define bean: {}", beanDefinition);
+            }
         }
     }
 

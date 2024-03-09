@@ -35,20 +35,25 @@ public class ClassUtils {
      * </code>
      */
     public static <A extends Annotation> A findAnnotation(Class<?> target, Class<A> annoClass) {
-        A a = target.getAnnotation(annoClass);
+        // 从当前类中获取指定注解
+        A result = target.getAnnotation(annoClass);
+        // 遍历当前类的所有注解
         for (Annotation anno : target.getAnnotations()) {
             Class<? extends Annotation> annoType = anno.annotationType();
+            // 如果当前注解不是 java.lang.annotation 下，既不是 Java 官方注解
             if (!annoType.getPackage().getName().equals("java.lang.annotation")) {
+                // 递归解析这个注解
                 A found = findAnnotation(annoType, annoClass);
+                // 如果递归后找到了 指定的注解，并且当前方法已经找到了一个 指定的注解，则报错找到重复的注解
                 if (found != null) {
-                    if (a != null) {
+                    if (result != null) {
                         throw new BeanDefinitionException("Duplicate @" + annoClass.getSimpleName() + " found on class " + target.getSimpleName());
                     }
-                    a = found;
+                    result = found;
                 }
             }
         }
-        return a;
+        return result;
     }
 
     @Nullable
