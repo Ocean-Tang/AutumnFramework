@@ -1,7 +1,7 @@
 package com.autumn;
 
 import com.autumn.context.AnnotationConfigApplicationContext;
-import com.autumn.context.AnnotationConfigApplicationContext2;
+import com.autumn.context.MyAnnotationConfigApplicationContext;
 import com.autumn.io.PropertiesResolver;
 import com.autumn.test.postProcessor.InjectProxyOnConstructorBean;
 import com.autumn.test.postProcessor.OriginBean;
@@ -58,3 +58,4 @@ public class Main {
         return new PropertiesResolver(properties);
     }
 }
+

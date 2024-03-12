@@ -45,9 +45,10 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
+ * 改造获取 BeanPostProcessor 执行后，获取原始Bean注入属性的流程
  * @author huangcanjie
  */
-public class AnnotationConfigApplicationContext2 {
+public class MyAnnotationConfigApplicationContext {
 
     protected final Logger log = LoggerFactory.getLogger(getClass());
 
@@ -57,8 +58,10 @@ public class AnnotationConfigApplicationContext2 {
     // 记录正在创建的 bean，解决循环依赖
     private Set<String> creatingBeanNames;
     private List<BeanPostProcessor> beanPostProcessors = new ArrayList<>();
+    // 保存原始 Bean
+    private Map<String, Object> originBeanMap = new HashMap<>();
 
-    public AnnotationConfigApplicationContext2(Class<?> configClass, PropertiesResolver propertiesResolver) {
+    public MyAnnotationConfigApplicationContext(Class<?> configClass, PropertiesResolver propertiesResolver) {
         this.propertiesResolver = propertiesResolver;
 
         // 扫描获取所有 Bean 的 CLASS 类型, configClass 标注应该标注了 @ComponentScan
@@ -94,22 +97,8 @@ public class AnnotationConfigApplicationContext2 {
         // 通过字段和 set 方法注入
         this.beans.values().forEach(this::injectBean);
 
-        this.beans.values().forEach(def -> {
-            for (BeanPostProcessor processor : beanPostProcessors) {
-                Object processed = processor.postProcessBeforeInitialization(def.getInstance(), def.getName());
-                def.setInstance(processed);
-            }
-        });
-
         // 调用 init 方法
         this.beans.values().forEach(this::initBean);
-
-        this.beans.values().forEach(def -> {
-            for (BeanPostProcessor processor : beanPostProcessors) {
-                Object processed = processor.postProcessAfterInitialization(def.getInstance(), def.getName());
-                def.setInstance(processed);
-            }
-        });
 
         if (log.isDebugEnabled()) {
             this.beans.values().stream().sorted().forEach(def -> {
@@ -127,7 +116,19 @@ public class AnnotationConfigApplicationContext2 {
      * @param def       BeanDefinition
      */
     void initBean(BeanDefinition def) {
-        callMethod(def.getInstance(), def.getInitMethod(), def.getInitMethodName());
+        final Object proxiedInstance = getProxiedInstance(def);
+
+        callMethod(proxiedInstance, def.getInitMethod(), def.getInitMethodName());
+
+        beanPostProcessors.forEach(processor -> {
+            Object processed = processor.postProcessAfterInitialization(def.getInstance(), def.getName());
+            if (processed != def.getInstance()) {
+                log.debug("BeanPostProcessor {} return different bean from {} to {}.", processor.getClass().getSimpleName(),
+                        def.getInstance().getClass().getName(), processed.getClass().getName());
+                this.originBeanMap.putIfAbsent(def.getName(), def.getInstance());
+                def.setInstance(processed);
+            }
+        });
     }
 
     private void callMethod(Object instance, Method method, String methodName) {
@@ -153,11 +154,29 @@ public class AnnotationConfigApplicationContext2 {
      * @param def       BeanDefinition
      */
     void injectBean(BeanDefinition def) {
+        final Object beanInstance = getProxiedInstance(def);
         try {
-            injectProperties(def, def.getBeanClass(), def.getInstance());
+            injectProperties(def, def.getBeanClass(), beanInstance);
         } catch (ReflectiveOperationException e) {
             throw new RuntimeException(e);
         }
+    }
+
+    Object getProxiedInstance(BeanDefinition def) {
+        return this.originBeanMap.getOrDefault(def.getName(), def.getInstance());
+        /*Object beanInstance = def.getInstance();
+        // 如果Proxy改变了原始Bean，又希望注入到原始Bean，则由BeanPostProcessor指定原始Bean:
+        List<BeanPostProcessor> reversedBeanPostProcessors = new ArrayList<>(this.beanPostProcessors);
+        Collections.reverse(reversedBeanPostProcessors);
+        for (BeanPostProcessor processor : reversedBeanPostProcessors) {
+            Object restoredInstance = processor.postProcessOnSetProperty(beanInstance, def.getName());
+            if (restoredInstance != beanInstance) {
+                log.debug("BeanPostProcessor {} specified injection from {} to {}.", processor.getClass().getSimpleName(),
+                        beanInstance.getClass().getSimpleName(), restoredInstance.getClass().getSimpleName());
+                beanInstance = restoredInstance;
+            }
+        }
+        return beanInstance;*/
     }
 
 
@@ -265,6 +284,14 @@ public class AnnotationConfigApplicationContext2 {
         }
         def.setInstance(instance);
 
+        // 调用 BeanPostProcessor 的 前置处理，这里感觉可以直接放到 构造方法里面执行，按照 SpringBean 的声明周期来执行
+        for (BeanPostProcessor processor : beanPostProcessors) {
+            Object processed = processor.postProcessBeforeInitialization(def.getInstance(), def.getName());
+            if (def.getInstance() != processed) {
+                this.originBeanMap.putIfAbsent(def.getName(), def.getInstance());
+                def.setInstance(processed);
+            }
+        }
         return def.getInstance();
     }
 

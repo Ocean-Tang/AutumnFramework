@@ -3,6 +3,7 @@ package com.autumn.test.postProcessor;
 import com.autumn.annotation.Component;
 import com.autumn.annotation.Order;
 import com.autumn.context.BeanPostProcessor;
+import lombok.Data;
 
 import java.util.HashMap;
 import java.util.Map;
