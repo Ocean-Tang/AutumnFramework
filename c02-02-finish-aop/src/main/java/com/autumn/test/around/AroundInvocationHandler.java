@@ -1,4 +1,6 @@
-package com.autumn.test;
+package com.autumn.test.around;
+
+import com.autumn.annotation.Component;
 
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Method;
@@ -6,7 +8,8 @@ import java.lang.reflect.Method;
 /**
  * @author huangcanjie
  */
-public class PoliteInvocationHandler implements InvocationHandler {
+@Component
+public class AroundInvocationHandler implements InvocationHandler {
 
     @Override
     public Object invoke(Object proxy, Method method, Object[] args) throws Throwable {

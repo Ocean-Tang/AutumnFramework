@@ -62,6 +62,8 @@ public class MyAnnotationConfigApplicationContext implements ConfigurableApplica
     private Map<String, Object> originBeanMap = new HashMap<>();
 
     public MyAnnotationConfigApplicationContext(Class<?> configClass, PropertiesResolver propertiesResolver) {
+        ApplicationContextUtils.setApplicationContext(this);
+
         this.propertiesResolver = propertiesResolver;
 
         // 扫描获取所有 Bean 的 CLASS 类型, configClass 标注应该标注了 @ComponentScan
@@ -304,7 +306,7 @@ public class MyAnnotationConfigApplicationContext implements ConfigurableApplica
         return (T) beanDefinition.getRequiredInstance();
     }
 
-    public <T> T getBean(String name, Class<?> requiredType) {
+    public <T> T getBean(String name, Class<T> requiredType) {
         T t = findBean(name, requiredType);
         if (t == null) {
             throw new NoSuchBeanDefinitionException(String.format("No bean defined with name '%s' and type '%s'.", name, requiredType));
@@ -313,7 +315,7 @@ public class MyAnnotationConfigApplicationContext implements ConfigurableApplica
     }
 
     @SuppressWarnings("unchecked")
-    public <T> List<T> getBeans(Class<?> requiredType) {
+    public <T> List<T> getBeans(Class<T> requiredType) {
         List<BeanDefinition> beanDefinitions = findBeanDefinitions(requiredType);
         if (beanDefinitions.isEmpty()) {
             return Collections.emptyList();
@@ -326,7 +328,7 @@ public class MyAnnotationConfigApplicationContext implements ConfigurableApplica
     }
 
     @SuppressWarnings("unchecked")
-    public <T> T getBean(Class<?> requiredType) {
+    public <T> T getBean(Class<T> requiredType) {
         BeanDefinition beanDefinition = findBeanDefinition(requiredType);
         if (beanDefinition == null) {
             throw new NoSuchBeanDefinitionException(String.format("No bean defined with type '%s'.", requiredType));

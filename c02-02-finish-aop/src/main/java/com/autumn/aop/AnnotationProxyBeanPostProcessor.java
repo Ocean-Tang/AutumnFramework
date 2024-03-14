@@ -49,7 +49,7 @@ public abstract class AnnotationProxyBeanPostProcessor<A extends Annotation> imp
     private Object createProxy(Class<?> beanClass, Object bean, String handlerName) {
         ConfigurableApplicationContext context = (ConfigurableApplicationContext) ApplicationContextUtils.getRequiredApplicationContext();
 
-        BeanDefinition beanDefinition = context.findBeanDefinition(beanClass);
+        BeanDefinition beanDefinition = context.findBeanDefinition(handlerName);
         if (beanDefinition == null) {
             throw new AopConfigException(String.format("@%s proxy handler '%s' not found.", this.annotationClass.getSimpleName(), handlerName));
         }
