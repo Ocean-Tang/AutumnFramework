@@ -45,10 +45,9 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
- * 改造获取 BeanPostProcessor 执行后，获取原始Bean注入属性的流程
  * @author huangcanjie
  */
-public class MyAnnotationConfigApplicationContext implements ConfigurableApplicationContext{
+public class AnotherAnnotationConfigApplicationContext implements ConfigurableApplicationContext {
 
     protected final Logger log = LoggerFactory.getLogger(getClass());
 
@@ -58,10 +57,8 @@ public class MyAnnotationConfigApplicationContext implements ConfigurableApplica
     // 记录正在创建的 bean，解决循环依赖
     private Set<String> creatingBeanNames;
     private List<BeanPostProcessor> beanPostProcessors = new ArrayList<>();
-    // 保存原始 Bean
-    private Map<String, Object> originBeanMap = new HashMap<>();
 
-    public MyAnnotationConfigApplicationContext(Class<?> configClass, PropertiesResolver propertiesResolver) {
+    public AnotherAnnotationConfigApplicationContext(Class<?> configClass, PropertiesResolver propertiesResolver) {
         ApplicationContextUtils.setApplicationContext(this);
 
         this.propertiesResolver = propertiesResolver;
@@ -127,7 +124,6 @@ public class MyAnnotationConfigApplicationContext implements ConfigurableApplica
             if (processed != def.getInstance()) {
                 log.debug("BeanPostProcessor {} return different bean from {} to {}.", processor.getClass().getSimpleName(),
                         def.getInstance().getClass().getName(), processed.getClass().getName());
-                this.originBeanMap.putIfAbsent(def.getName(), def.getInstance());
                 def.setInstance(processed);
             }
         });
@@ -165,8 +161,7 @@ public class MyAnnotationConfigApplicationContext implements ConfigurableApplica
     }
 
     Object getProxiedInstance(BeanDefinition def) {
-        return this.originBeanMap.getOrDefault(def.getName(), def.getInstance());
-        /*Object beanInstance = def.getInstance();
+        Object beanInstance = def.getInstance();
         // 如果Proxy改变了原始Bean，又希望注入到原始Bean，则由BeanPostProcessor指定原始Bean:
         List<BeanPostProcessor> reversedBeanPostProcessors = new ArrayList<>(this.beanPostProcessors);
         Collections.reverse(reversedBeanPostProcessors);
@@ -178,7 +173,7 @@ public class MyAnnotationConfigApplicationContext implements ConfigurableApplica
                 beanInstance = restoredInstance;
             }
         }
-        return beanInstance;*/
+        return beanInstance;
     }
 
 
@@ -201,6 +196,7 @@ public class MyAnnotationConfigApplicationContext implements ConfigurableApplica
      *
      * @param def BeanDefinition
      */
+    @Override
     public Object createBeanAsEarlySingleton(BeanDefinition def) {
         log.debug("Try create bean '{}' as early singleton: {}", def.getName(), def.getBeanClass().getName());
 
@@ -290,7 +286,6 @@ public class MyAnnotationConfigApplicationContext implements ConfigurableApplica
         for (BeanPostProcessor processor : beanPostProcessors) {
             Object processed = processor.postProcessBeforeInitialization(def.getInstance(), def.getName());
             if (def.getInstance() != processed) {
-                this.originBeanMap.putIfAbsent(def.getName(), def.getInstance());
                 def.setInstance(processed);
             }
         }
@@ -306,6 +301,7 @@ public class MyAnnotationConfigApplicationContext implements ConfigurableApplica
         return (T) beanDefinition.getRequiredInstance();
     }
 
+    @Override
     public <T> T getBean(String name, Class<T> requiredType) {
         T t = findBean(name, requiredType);
         if (t == null) {
@@ -315,6 +311,7 @@ public class MyAnnotationConfigApplicationContext implements ConfigurableApplica
     }
 
     @SuppressWarnings("unchecked")
+    @Override
     public <T> List<T> getBeans(Class<T> requiredType) {
         List<BeanDefinition> beanDefinitions = findBeanDefinitions(requiredType);
         if (beanDefinitions.isEmpty()) {

@@ -1,6 +1,7 @@
 package com.autumn.test.around;
 
 import com.autumn.annotation.Around;
+import com.autumn.annotation.Aspect;
 import com.autumn.annotation.Component;
 import com.autumn.annotation.Value;
 
@@ -8,7 +9,7 @@ import com.autumn.annotation.Value;
  * @author huangcanjie
  */
 @Component
-@Around("aroundInvocationHandler")
+@Aspect("testAopInvocationHandler")
 public class OriginBean {
 
     @Value("${app.title}")
@@ -23,11 +24,7 @@ public class OriginBean {
     }
 
     public String morning() {
+        int i = 1/0;
         return "Morning, " + name + ".";
-    }
-
-    @Override
-    public String toString() {
-        return "1111";
     }
 }

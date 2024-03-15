@@ -1,11 +1,9 @@
 package com.autumn;
 
-import com.autumn.aop.ProxyResolver;
 import com.autumn.context.AnnotationConfigApplicationContext;
 import com.autumn.io.PropertiesResolver;
 import com.autumn.test.Application;
 import com.autumn.test.around.OriginBean;
-import com.autumn.test.around.OtherBean;
 import com.autumn.utils.YamlUtils;
 
 import java.util.Map;

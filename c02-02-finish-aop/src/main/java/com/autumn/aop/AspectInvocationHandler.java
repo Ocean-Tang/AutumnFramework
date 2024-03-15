@@ -3,12 +3,13 @@ package com.autumn.aop;
 import lombok.Getter;
 
 import java.lang.reflect.InvocationHandler;
+import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 
 /**
  * @author huangcanjie
  */
-public abstract class AopInvocationHandler implements InvocationHandler {
+public abstract class AspectInvocationHandler implements InvocationHandler {
 
     public void before(Object proxy, Method method, Object[] args) {
     }
@@ -21,10 +22,18 @@ public abstract class AopInvocationHandler implements InvocationHandler {
         return joinPoint.process();
     }
 
+    public void afterReturn (Object proxy, Method method, Object[] args) {
+    }
+
+    public void afterThrowing (Object proxy, Method method, Object[] args, Throwable e) {
+    }
+
     @Override
     public final Object invoke(Object proxy, Method method, Object[] args) throws Throwable {
         JoinPoint joinPoint = new JoinPoint(proxy, method, args);
-        return this.around(joinPoint);
+        Object result = this.around(joinPoint);
+        this.afterReturn(proxy, method, args);
+        return result;
     }
 
 
@@ -38,12 +47,18 @@ public abstract class AopInvocationHandler implements InvocationHandler {
             this.target = proxy;
             this.method = method;
             this.args = args;
+
         }
 
-        public Object process() throws Throwable {
-            AopInvocationHandler.this.before(target, method, args);
-            Object returnValue = this.method.invoke(target, args);
-            return AopInvocationHandler.this.after(target, returnValue, method, args);
+        public Object process() {
+            AspectInvocationHandler.this.before(target, method, args);
+            Object returnValue = null;
+            try {
+                returnValue = this.method.invoke(target, args);
+            } catch (IllegalAccessException | InvocationTargetException e) {
+                AspectInvocationHandler.this.afterThrowing(target, method, args, e);
+            }
+            return AspectInvocationHandler.this.after(target, returnValue, method, args);
         }
     }
 }

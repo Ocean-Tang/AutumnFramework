@@ -1,7 +1,7 @@
 package com.autumn.test.aop;
 
 import com.autumn.annotation.Component;
-import com.autumn.aop.AopInvocationHandler;
+import com.autumn.aop.AspectInvocationHandler;
 
 import java.lang.reflect.Method;
 
@@ -9,7 +9,7 @@ import java.lang.reflect.Method;
  * @author huangcanjie
  */
 @Component
-public class TestAopInvocationHandler extends AopInvocationHandler {
+public class TestAopInvocationHandler extends AspectInvocationHandler {
 
     @Override
     public void before(Object proxy, Method method, Object[] args) {
@@ -21,6 +21,17 @@ public class TestAopInvocationHandler extends AopInvocationHandler {
         Object value = returnValue instanceof String ? returnValue + "！！！！" : returnValue;
         System.out.println(String.format("[After] %s() 为返回内容添加内容：'！！！'，结果为： %s", method.getName(), value));
         return value;
+    }
+
+    @Override
+    public void afterReturn(Object proxy, Method method, Object[] args) {
+        System.out.println(String.format("[afterReturn] %s()", method.getName()));
+    }
+
+    @Override
+    public void afterThrowing(Object proxy, Method method, Object[] args, Throwable e) {
+        System.out.println(String.format("[afterThrowing] %s()", method.getName()));
+        e.printStackTrace();
     }
 
     @Override
