@@ -16,16 +16,10 @@ public class Main {
         AnnotationConfigApplicationContext ctx = new AnnotationConfigApplicationContext(Application.class, getPropertiesResolver());
 
         OriginBean bean = ctx.getBean(OriginBean.class);
-        System.out.println(bean.getClass().getName());
-
-        System.out.println(bean.getClass() == OriginBean.class);
 
         System.out.println(bean.hello());
         System.out.println(bean.morning());
 
-        OtherBean otherBean = ctx.getBean(OtherBean.class);
-        System.out.println(otherBean.origin == bean);
-        System.out.println(otherBean.origin.hello());
 
         ctx.close();
     }

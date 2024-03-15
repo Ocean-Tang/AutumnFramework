@@ -25,4 +25,9 @@ public class OriginBean {
     public String morning() {
         return "Morning, " + name + ".";
     }
+
+    @Override
+    public String toString() {
+        return "1111";
+    }
 }
