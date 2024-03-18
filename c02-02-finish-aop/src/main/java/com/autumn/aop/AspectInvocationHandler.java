@@ -50,6 +50,9 @@ public abstract class AspectInvocationHandler implements InvocationHandler {
 
         }
 
+        /**
+         * 执行被代理方法
+         */
         public Object process() {
             AspectInvocationHandler.this.before(target, method, args);
             Object returnValue = null;
