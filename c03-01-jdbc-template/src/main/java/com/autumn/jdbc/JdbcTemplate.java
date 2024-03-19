@@ -78,13 +78,18 @@ public class JdbcTemplate {
         );
     }
 
+    /*
+    执行 update 相关语句，并返回可以搜索的主键
+     */
     public Number updateAndReturnGeneratedKey(String sql, Object... args) {
         return execute(
+                // 回调方法为，返回一个预编译语句，执行成功后会返回可以搜索的主键
                 (conn -> {
                     PreparedStatement ps = conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS);
                     bindArgs(ps, args);
                     return ps;
                 }),
+                // 回调方法为，执行 PreparedStatement 的 executeUpdate
                 ps -> {
                     int n = ps.executeUpdate();
                     if (n == 0) {
@@ -104,20 +109,27 @@ public class JdbcTemplate {
     }
 
     public int update(String sql, Object... args) {
+        // 传递预编译创造器，其中回调方法为得到一个预编译好的 PreparedStatement
+        // 传递的回调方法为，执行传递的 PreparedStatement 的 executeUpdate 方法
         return execute(preparedStatementCreator(sql, args),
                 PreparedStatement::executeUpdate);
     }
 
     public <T> T execute(PreparedStatementCreator psc, PreparedStatementCallback<T> action) {
         return execute(conn -> {
+            // execute，回调方法为，执行 psc 中的回调方法，得到预编译的sql语句，然后执行 action 的回调方法，执行其中sql语句
             try (PreparedStatement ps = psc.createPreparedStatement(conn)) {
                 return action.doInPreparedStatement(ps);
             }
         });
     }
 
+    /*
+    执行 connection 接口传递进来的回调方法
+     */
     public <T> T execute(ConnectionCallback<T> action) {
         try (Connection conn = dataSource.getConnection()) {
+            // 检查是否开启自动提交，如果没有，则设置自动提交，连接处理完毕后，再重置
             final boolean autoCommit = conn.getAutoCommit();
             if (!autoCommit) {
                 conn.setAutoCommit(true);
@@ -126,12 +138,16 @@ public class JdbcTemplate {
             if (!autoCommit) {
                 conn.setAutoCommit(false);
             }
+            // 返回执行结果
             return result;
         } catch (SQLException e) {
             throw new DataAccessException(e);
         }
     }
 
+    /*
+    创建一个 预编译sql语句创建器的回调接口，回调方法为返回一个预编译好的 PreparedStatement
+     */
     private PreparedStatementCreator preparedStatementCreator(String sql, Object... args) {
         return conn -> {
             PreparedStatement ps = conn.prepareStatement(sql);
